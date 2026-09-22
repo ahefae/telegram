@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ПО-33 · Расписание</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Inter:wght@400;500;600;700&family=Unbounded:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --bg-0:#0b0918;
+    --bg-1:#171029;
+    --glass:rgba(255,255,255,.05);
+    --glass-strong:rgba(255,255,255,.08);
+    --ink:#f4f0fb;
+    --muted:#a79fc9;
+    --line:rgba(255,255,255,.10);
+    --grad-a:#ff8a5c;   /* рассвет — тёплый край градиента */
+    --grad-b:#c15fd6;   /* переход */
+    --grad-c:#4fb3e8;   /* закат — холодный край градиента */
+    --accent:#ff8a5c;   /* для мелкого текста/ссылок — сплошной, не градиент */
+    --gradient: linear-gradient(115deg, var(--grad-a), var(--grad-b) 55%, var(--grad-c));
+    --radius:16px;
+    --radius-pill:999px;
+  }
+  *{box-sizing:border-box;}
+  html{background:var(--bg-0);}
+  body{
+    margin:0;
+    background:var(--bg-0);
+    color:var(--ink);
+    font-family:'Inter',system-ui,sans-serif;
+    min-height:100vh;
+    position:relative;
+    overflow-x:hidden;
+  }
+
+  /* ---- ambient gradient backdrop (единственный источник движения в фоне) ---- */
+  .aurora{position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none;}
+  .aurora span{
+    position:absolute;border-radius:50%;
+    filter:blur(90px);opacity:.38;
+  }
+  .aurora .b1{width:60vw;height:60vw;max-width:620px;max-height:620px;background:var(--grad-a);top:-18%;left:-14%;}
+  .aurora .b2{width:55vw;height:55vw;max-width:560px;max-height:560px;background:var(--grad-c);bottom:-20%;right:-12%;}
+  .aurora .b3{width:38vw;height:38vw;max-width:420px;max-height:420px;background:var(--grad-b);top:38%;left:58%;opacity:.28;}
+  @media (prefers-reduced-motion:no-preference){
+    .aurora .b1{animation:drift1 26s ease-in-out infinite alternate;}
+    .aurora .b2{animation:drift2 30s ease-in-out infinite alternate;}
+    .aurora .b3{animation:drift1 22s ease-in-out infinite alternate-reverse;}
+  }
+  @keyframes drift1{from{transform:translate(0,0) scale(1);}to{transform:translate(4%,6%) scale(1.08);}}
+  @keyframes drift2{from{transform:translate(0,0) scale(1);}to{transform:translate(-5%,-4%) scale(1.05);}}
+
+  .wrap{max-width:640px;margin:0 auto;padding:36px 20px 60px;}
+
+  /* ---- hero ---- */
+  header{padding-bottom:26px;border-bottom:1px solid var(--line);}
+  .group-row{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;}
+  .group{
+    font-family:'Unbounded',sans-serif;font-weight:700;
+    font-size:clamp(26px,6vw,36px);line-height:1.1;letter-spacing:-.01em;
+    background-image:var(--gradient);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+  }
+  .clock{
+    font-family:'Space Mono',monospace;font-size:13px;color:var(--muted);
+    letter-spacing:.04em;padding-top:8px;flex:none;
+  }
+  .status{margin-top:22px;}
+  .status-label{font-size:12px;color:var(--muted);margin-bottom:8px;}
+  .status-main{
+    font-family:'Unbounded',sans-serif;font-weight:600;
+    font-size:clamp(19px,4.6vw,25px);line-height:1.35;color:var(--ink);
+  }
+  .status-sub{margin-top:6px;color:var(--muted);font-size:14px;}
+
+  .tg-btn{
+    margin-top:20px;
+    display:inline-flex;align-items:center;gap:9px;
+    background:var(--glass);
+    border:1px solid var(--line);
+    color:var(--ink);
+    padding:11px 18px 11px 14px;border-radius:var(--radius-pill);
+    text-decoration:none;font-weight:600;font-size:14px;
+    transition:transform .15s ease, border-color .15s ease, background .15s ease;
+  }
+  .tg-btn:hover{background:var(--glass-strong);border-color:rgba(255,255,255,.22);transform:translateY(-1px);}
+  .tg-btn:focus-visible{outline:2px solid var(--grad-c);outline-offset:2px;}
+  .tg-btn svg{width:20px;height:20px;flex:none;color:#4fb3e8;}
+
+  /* ---- day tabs ---- */
+  nav{display:flex;gap:6px;margin:28px 0 14px;overflow-x:auto;padding-bottom:2px;}
+  nav button{
+    flex:1 0 auto;
+    background:transparent;border:1px solid var(--line);
+    color:var(--muted);
+    font-family:'Inter',sans-serif;font-weight:500;
+    font-size:13px;
+    padding:10px 8px;cursor:pointer;
+    border-radius:var(--radius-pill);
+    transition:border-color .15s ease, color .15s ease;
+  }
+  nav button.active{
+    color:#1a1024;background-image:var(--gradient);
+    border-color:transparent;font-weight:700;
+  }
+  nav button:hover:not(.active){border-color:rgba(255,255,255,.28);color:var(--ink);}
+  nav button:focus-visible{outline:2px solid var(--grad-c);outline-offset:2px;}
+
+  /* ---- board ---- */
+  .board{display:flex;flex-direction:column;gap:8px;}
+  .row{
+    display:grid;
+    grid-template-columns:66px 1fr;
+    background:var(--glass);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    overflow:hidden;
+  }
+  .row.now{
+    border-color:rgba(255,138,92,.55);
+    box-shadow:0 0 0 1px rgba(255,138,92,.15), 0 8px 28px -12px rgba(193,95,214,.45);
+    position:relative;
+  }
+  .row.now::before{
+    content:"";position:absolute;left:0;top:0;bottom:0;width:4px;
+    background-image:var(--gradient);
+  }
+  .cell-time{
+    padding:14px 10px;
+    font-family:'Space Mono',monospace;
+    font-size:12px;color:var(--muted);
+    border-right:1px solid var(--line);
+    display:flex;flex-direction:column;justify-content:center;gap:2px;
+  }
+  .row.now .cell-time{color:var(--ink);}
+  .cell-time .n{font-size:16px;font-weight:700;color:var(--ink);}
+  .cell-main{padding:14px 14px;}
+  .subject{font-weight:600;font-size:15px;line-height:1.35;color:var(--ink);}
+  .meta{margin-top:4px;color:var(--muted);font-size:13px;}
+  .empty{padding:44px 14px;text-align:center;color:var(--muted);font-size:14px;
+    background:var(--glass);border:1px solid var(--line);border-radius:var(--radius);}
+
+  @media (prefers-reduced-motion:no-preference){
+    .row.now{animation:pulse 2.6s ease-in-out infinite;}
+  }
+  @keyframes pulse{
+    0%,100%{box-shadow:0 0 0 1px rgba(255,138,92,.15), 0 8px 28px -12px rgba(193,95,214,.45);}
+    50%{box-shadow:0 0 0 1px rgba(255,138,92,.3), 0 8px 34px -10px rgba(193,95,214,.65);}
+  }
+
+  footer{margin-top:32px;color:var(--muted);font-size:12px;text-align:center;line-height:1.6;}
+  a{color:var(--accent);}
+  a:focus-visible{outline:2px solid var(--grad-c);outline-offset:2px;}
+
+  /* ---- telegram promo block (отдельно от расписания) ---- */
+  .tg-promo{
+    margin-top:28px;
+    display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;
+    padding:18px 20px;
+    background:var(--glass);border:1px solid var(--line);border-radius:var(--radius);
+  }
+  .tg-promo-title{font-weight:600;font-size:15px;color:var(--ink);}
+  .tg-promo-sub{margin-top:4px;color:var(--muted);font-size:13px;max-width:380px;line-height:1.4;}
+  .tg-promo .tg-btn{margin-top:0;flex:none;}
+</style>
+</head>
+<body>
+<div class="aurora"><span class="b1"></span><span class="b2"></span><span class="b3"></span></div>
+<div class="wrap">
+  <header>
+    <div class="group-row">
+      <div class="group">ПО-33</div>
+      <div class="clock" id="clock">--:--:--</div>
+    </div>
+    <div class="status">
+      <div class="status-label">СЕЙЧАС</div>
+      <div class="status-main" id="statusMain">Загрузка…</div>
+      <div class="status-sub" id="statusSub"></div>
+    </div>
+  </header>
+
+  <nav id="dayTabs"></nav>
+  <div class="board" id="board"><div class="empty">Загрузка расписания…</div></div>
+
+  <section class="tg-promo" id="tgPromo">
+    <div class="tg-promo-text">
+      <div class="tg-promo-title">Бот в Telegram</div>
+      <div class="tg-promo-sub">То же расписание, сегодняшний день и «какая пара сейчас» — прямо в чате.</div>
+    </div>
+    <a class="tg-btn" id="tgLink" href="#" target="_blank" rel="noopener">
+      <svg viewBox="0 0 240 240" fill="currentColor"><path d="M120 0C53.7 0 0 53.7 0 120s53.7 120 120 120 120-53.7 120-120S186.3 0 120 0zm55.6 82.1-19.6 92.5c-1.5 6.6-5.4 8.2-10.9 5.1l-30-22.1-14.5 13.9c-1.6 1.6-3 3-6.1 3l2.2-30.9 56.2-50.8c2.4-2.2-.5-3.4-3.8-1.2l-69.5 43.8-29.9-9.4c-6.5-2-6.6-6.5 1.4-9.6l117-45.1c5.4-2 10.1 1.3 8.5 10.8z"/></svg>
+      Открыть бота
+    </a>
+  </section>
+
+  <footer>Данные обновляются напрямую из Supabase — измените предмет в Table Editor,
+    перезагрузите страницу, и здесь появится новое значение.</footer>
+</div>
+
+<script>
+// ==== НАСТРОЙКИ: впишите свои данные из Supabase → Project Settings → API ====
+const SUPABASE_URL = "https://vlwvyysoppgtkpfcfrgv.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_Kv9AWzNKIwTD0unMq81m4A_YEafUcPS";
+const GROUP_NAME = "ПО-33";
+// username бота без "@", который выдал @BotFather (например my_schedule_bot)
+const BOT_USERNAME = "eqwggea_bot";
+// ==============================================================================
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const DAY_NAMES = ["", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
+const DAY_NAMES_FULL = ["", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"];
+
+let schedule = [];           // все пары группы, отсортированные
+let selectedDay = jsDayToOur(new Date().getDay());
+let telegramGroupId = null;  // заполняется после успешной загрузки группы из Supabase
+
+function jsDayToOur(jsDay){ // JS: 0=Вс..6=Сб  →  наша схема: 1=Пн..6=Сб, 0(Вс) не используется
+  return jsDay === 0 ? 7 : jsDay;
+}
+
+function toMinutes(t){ // "09:30:00" -> 570
+  const [h,m] = t.split(":").map(Number);
+  return h*60+m;
+}
+
+async function loadSchedule(){
+  const { data: groups, error: gErr } = await sb.from("groups").select("id").eq("name", GROUP_NAME).single();
+  if (gErr || !groups) { document.getElementById("board").innerHTML = '<div class="empty">Не удалось загрузить группу. Проверьте SUPABASE_URL / KEY.</div>'; return; }
+
+  const { data, error } = await sb
+    .from("schedule")
+    .select("*")
+    .eq("group_id", groups.id)
+    .order("day_of_week", { ascending: true })
+    .order("lesson_number", { ascending: true });
+
+  if (error) { document.getElementById("board").innerHTML = '<div class="empty">Ошибка загрузки расписания.</div>'; return; }
+  schedule = data || [];
+  renderTabs();
+  renderBoard();
+  renderStatus();
+  telegramGroupId = groups.id;
+  setupTelegramLink(); // обновляем ссылку, теперь уже с deep-link на конкретную группу
+}
+
+// Блок Telegram не зависит от того, успешно ли загрузилось расписание —
+// вызывается сразу при открытии страницы (см. низ файла), а после загрузки
+// группы из Supabase просто получает более точную ссылку (с выбором группы).
+function setupTelegramLink(){
+  const link = document.getElementById("tgLink");
+  const promo = document.getElementById("tgPromo");
+  if (!link || !promo) return;
+
+  if (!BOT_USERNAME || BOT_USERNAME.trim() === "" || BOT_USERNAME.startsWith("впишите")) {
+    promo.style.display = "none";
+    console.warn('Telegram-блок скрыт: впишите настоящий BOT_USERNAME в начале <script> в index.html.');
+    return;
+  }
+
+  promo.style.display = "";
+  link.href = telegramGroupId
+    ? `https://t.me/${BOT_USERNAME}?start=group_${telegramGroupId}`
+    : `https://t.me/${BOT_USERNAME}`;
+}
+
+function renderTabs(){
+  const nav = document.getElementById("dayTabs");
+  nav.innerHTML = "";
+  for (let d=1; d<=6; d++){
+    const btn = document.createElement("button");
+    btn.textContent = DAY_NAMES[d];
+    if (d === selectedDay) btn.classList.add("active");
+    btn.onclick = () => { selectedDay = d; renderTabs(); renderBoard(); };
+    nav.appendChild(btn);
+  }
+}
+
+function renderBoard(){
+  const board = document.getElementById("board");
+  const dayLessons = schedule.filter(s => s.day_of_week === selectedDay);
+  if (dayLessons.length === 0){
+    board.innerHTML = '<div class="empty">В этот день пар нет</div>';
+    return;
+  }
+  const now = new Date();
+  const nowMin = now.getHours()*60 + now.getMinutes();
+  const isToday = selectedDay === jsDayToOur(now.getDay());
+
+  board.innerHTML = dayLessons.map(l => {
+    const isNow = isToday && nowMin >= toMinutes(l.time_start) && nowMin < toMinutes(l.time_end);
+    return `
+      <div class="row ${isNow ? "now" : ""}">
+        <div class="cell-time">
+          <span class="n">${l.lesson_number}</span>
+          <span>${l.time_start.slice(0,5)}–${l.time_end.slice(0,5)}</span>
+        </div>
+        <div class="cell-main">
+          <div class="subject">${escapeHtml(l.subject_name)}</div>
+          <div class="meta">${escapeHtml(l.teacher || "")}${l.room ? " · ауд. " + escapeHtml(l.room) : ""}</div>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+function renderStatus(){
+  const now = new Date();
+  const today = jsDayToOur(now.getDay());
+  const nowMin = now.getHours()*60 + now.getMinutes();
+  const todayLessons = schedule.filter(s => s.day_of_week === today).sort((a,b)=>toMinutes(a.time_start)-toMinutes(b.time_start));
+
+  const main = document.getElementById("statusMain");
+  const sub = document.getElementById("statusSub");
+
+  if (today === 7 || todayLessons.length === 0){
+    main.innerHTML = "Сегодня пар нет";
+    sub.textContent = "";
+    return;
+  }
+
+  const current = todayLessons.find(l => nowMin >= toMinutes(l.time_start) && nowMin < toMinutes(l.time_end));
+  if (current){
+    main.textContent = `Идёт ${current.lesson_number} пара: ${current.subject_name}`;
+    sub.textContent = `${current.time_start.slice(0,5)}–${current.time_end.slice(0,5)}${current.room ? " · ауд. " + current.room : ""}`;
+    return;
+  }
+
+  const next = todayLessons.find(l => toMinutes(l.time_start) > nowMin);
+  if (next){
+    main.innerHTML = `Перемена · далее ${next.lesson_number} пара`;
+    sub.textContent = `${escapeHtml(next.subject_name)} в ${next.time_start.slice(0,5)}`;
+    return;
+  }
+
+  main.textContent = "На сегодня все пары закончились";
+  sub.textContent = "";
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+function tickClock(){
+  const now = new Date();
+  document.getElementById("clock").textContent = now.toLocaleTimeString("ru-RU");
+  renderStatus();
+  // перерисовать доску раз в минуту, чтобы подсветка "текущей пары" двигалась
+  if (now.getSeconds() === 0) renderBoard();
+}
+
+setupTelegramLink(); // показываем блок сразу, не дожидаясь ответа от Supabase
+loadSchedule();
+setInterval(tickClock, 1000);
+</script>
+</body>
+</html>
